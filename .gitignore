@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+
+# Local admin/media runtime data. Recreate these through the app.
+data/*.json
+media/uploads/
+
+# Local environment and logs.
+.env
+.env.*
+*.log

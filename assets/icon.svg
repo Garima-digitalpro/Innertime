@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Screen To Inner Time icon">
+  <rect width="512" height="512" rx="96" fill="#111111"/>
+  <circle cx="256" cy="256" r="154" fill="none" stroke="#f0c766" stroke-width="20"/>
+  <circle cx="256" cy="256" r="92" fill="none" stroke="#6db7a7" stroke-width="18"/>
+  <path d="M158 256c36-52 160-52 196 0-36 52-160 52-196 0Z" fill="#f7f1e7"/>
+  <circle cx="256" cy="256" r="28" fill="#111111"/>
+</svg>

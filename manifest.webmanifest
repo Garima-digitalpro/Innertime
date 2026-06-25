@@ -1,0 +1,18 @@
+{
+  "name": "InnerTime",
+  "short_name": "InnerTime",
+  "description": "Turn screen urges into master-guided inner practice.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f4f2",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "/assets/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

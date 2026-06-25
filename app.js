@@ -14,6 +14,7 @@ const DB_VERSION = 1;
 const MEDIA_STORE = "media";
 const SESSION_MINUTES = [15, 30];
 const MEDIA_API = "/api/media";
+const APP_BASE = detectAppBase();
 
 let activeSession = null;
 let activeTimer = null;
@@ -65,17 +66,31 @@ function routeName() {
 
 function normalizedPath() {
   let path = window.location.pathname || "/";
+  if (APP_BASE && (path === APP_BASE || path.startsWith(`${APP_BASE}/`))) {
+    path = path.slice(APP_BASE.length) || "/";
+  }
   if (path.length > 1) path = path.replace(/\/+$/, "");
   return path || "/";
 }
 
+function detectAppBase() {
+  const [firstSegment] = (window.location.pathname || "").split("/").filter(Boolean);
+  return firstSegment?.toLowerCase() === "innertime" ? `/${firstSegment}` : "";
+}
+
+function appUrl(path = "/") {
+  if (!path.startsWith("/")) return path;
+  if (!APP_BASE) return path;
+  return path === "/" ? `${APP_BASE}/` : `${APP_BASE}${path}`;
+}
+
 function navigate(path) {
-  window.history.pushState({}, "", path);
+  window.history.pushState({}, "", appUrl(path));
   renderRoute();
 }
 
 function replace(path) {
-  window.history.replaceState({}, "", path);
+  window.history.replaceState({}, "", appUrl(path));
   renderRoute();
 }
 
@@ -124,7 +139,7 @@ function durationFromPath() {
 function brandMarkup() {
   return `
     <div class="brand">
-      <img class="brand-logo" src="/assets/vishvas-meditation-logo.png" alt="Vishvas Meditation">
+      <img class="brand-logo" src="${appUrl("/assets/vishvas-meditation-logo.png")}" alt="Vishvas Meditation">
       <div>
         <h1 class="brand-title">InnerTime</h1>
         <p class="brand-subtitle">Screen to Inner Time</p>
@@ -403,7 +418,7 @@ function publicRecordingsMarkup(media) {
             <p>${escapeHtml(item.source || "Source credit not added yet.")}</p>
             ${item.status === "published" ? "" : `<span class="pill draft">Admin preview draft</span>`}
             ${url && canStart ? `
-              <a class="recording-play-button" href="/session/${Number(item.duration)}/?track=${encodeURIComponent(item.id)}&autostart=1" data-start-recording data-duration="${Number(item.duration)}" data-media-id="${escapeHtml(item.id)}" aria-label="Play ${Number(item.duration)} minute sitting with ${escapeHtml(item.title)}">
+              <a class="recording-play-button" href="${appUrl(`/session/${Number(item.duration)}/`)}?track=${encodeURIComponent(item.id)}&autostart=1" data-start-recording data-duration="${Number(item.duration)}" data-media-id="${escapeHtml(item.id)}" aria-label="Play ${Number(item.duration)} minute sitting with ${escapeHtml(item.title)}">
                 <span class="play-icon" aria-hidden="true"></span>
                 <span class="recording-play-text">
                   <strong>Play ${Number(item.duration)} min sitting</strong>
@@ -2320,6 +2335,6 @@ function registerServiceWorker() {
   }
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    navigator.serviceWorker.register(appUrl("/sw.js"), { scope: appUrl("/") }).catch(() => undefined);
   });
 }

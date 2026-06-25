@@ -1,18 +1,20 @@
-const CACHE_NAME = "screen-to-inner-time-v29";
+const CACHE_NAME = "screen-to-inner-time-v30";
+const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
+const withBase = (path) => `${BASE_PATH}${path}`;
 const APP_SHELL = [
-  "/",
-  "/index.html",
-  "/styles.css?v=20260625-session-form-1",
-  "/app.js?v=20260625-session-form-1",
-  "/manifest.webmanifest",
-  "/assets/icon.svg",
-  "/assets/vishvas-meditation-logo.png",
-  "/admin/dashboard/",
-  "/admin/admins/",
-  "/admin/login/",
-  "/admin/media/",
-  "/session/15/",
-  "/session/30/"
+  withBase("/"),
+  withBase("/index.html"),
+  withBase("/styles.css?v=20260625-session-form-1"),
+  withBase("/app.js?v=20260625-session-form-1"),
+  withBase("/manifest.webmanifest"),
+  withBase("/assets/icon.svg"),
+  withBase("/assets/vishvas-meditation-logo.png"),
+  withBase("/admin/dashboard/"),
+  withBase("/admin/admins/"),
+  withBase("/admin/login/"),
+  withBase("/admin/media/"),
+  withBase("/session/15/"),
+  withBase("/session/30/")
 ];
 
 self.addEventListener("install", (event) => {
@@ -35,7 +37,7 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(() => caches.match("/index.html"))
+      fetch(request).catch(() => caches.match(withBase("/index.html")))
     );
     return;
   }

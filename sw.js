@@ -1,11 +1,11 @@
-const CACHE_NAME = "screen-to-inner-time-v33";
+const CACHE_NAME = "screen-to-inner-time-v34";
 const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const withBase = (path) => `${BASE_PATH}${path}`;
 const APP_SHELL = [
   withBase("/"),
   withBase("/index.html"),
-  withBase("/styles.css?v=20260626-bundled-audio-1"),
-  withBase("/app.js?v=20260626-bundled-audio-1"),
+  withBase("/styles.css?v=20260626-deduped-tracks-1"),
+  withBase("/app.js?v=20260626-deduped-tracks-1"),
   withBase("/manifest.webmanifest"),
   withBase("/assets/icon.svg"),
   withBase("/assets/vishvas-meditation-logo.png"),

@@ -2311,6 +2311,9 @@ function withTimeout(promise, ms, fallbackValue) {
 }
 
 async function getSelectableMedia(duration) {
+  const bundledForDuration = bundledMediaForDuration(duration);
+  if (bundledForDuration.length) return bundledForDuration;
+
   const media = await getAllMediaSafe();
   return media
     .filter((item) =>
@@ -2319,6 +2322,17 @@ async function getSelectableMedia(duration) {
       (item.status === "published" || isAdmin())
     )
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+}
+
+function bundledMediaForDuration(duration) {
+  return BUNDLED_MEDIA_ITEMS
+    .filter((item) => Number(item.duration) === Number(duration))
+    .sort((a, b) => trackNumber(a.title) - trackNumber(b.title));
+}
+
+function trackNumber(title) {
+  const match = String(title || "").match(/track\s+(\d+)/i);
+  return match ? Number(match[1]) : 999;
 }
 
 function selectedTrackFromUrl(media) {

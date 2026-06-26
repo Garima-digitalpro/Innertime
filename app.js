@@ -206,12 +206,17 @@ function brandMarkup() {
 function topbarMarkup(active = "home") {
   const adminPrimaryRoute = isAdmin() ? "/admin/dashboard/" : "/admin/login/";
   const adminNav = active === "admin"
-    ? `
+    ? isAdmin()
+      ? `
       <button class="quiet-button" data-route="/admin/dashboard/">Dashboard</button>
       <button class="quiet-button" data-route="/admin/media/">Media</button>
       ${isOwner() ? `<button class="quiet-button" data-route="/admin/admins/">Admins</button>` : ""}
       <button class="quiet-button" data-route="/">Explore</button>
-      ${isAdmin() ? `<button class="quiet-button" data-action="logout">Log out</button>` : ""}
+      <button class="quiet-button" data-action="logout">Log out</button>
+    `
+      : `
+      <button class="quiet-button" data-route="/">Explore</button>
+      <button class="quiet-button" data-route="/session/15/">Start Sitting</button>
     `
     : `
       <button class="quiet-button" data-route="/">Explore</button>

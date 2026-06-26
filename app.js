@@ -15,16 +15,18 @@ const MEDIA_STORE = "media";
 const SESSION_MINUTES = [15, 30];
 const MEDIA_API = "/api/media";
 const APP_BASE = detectAppBase();
+const IS_STATIC_PREVIEW = isStaticPreviewHost();
+const MEDIA_LOAD_TIMEOUT_MS = IS_STATIC_PREVIEW ? 900 : 2500;
 
 let activeSession = null;
 let activeTimer = null;
 let installPrompt = null;
 
-window.addEventListener("popstate", renderRoute);
+window.addEventListener("popstate", safeRenderRoute);
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   installPrompt = event;
-  if (routeName() === "home") renderRoute();
+  if (routeName() === "home") safeRenderRoute();
 });
 
 document.addEventListener("visibilitychange", () => {
@@ -42,8 +44,8 @@ window.addEventListener("beforeunload", () => {
 
 applyDayBrightness();
 registerServiceWorker();
-renderRoute();
-migrateLocalMediaToServer();
+safeRenderRoute();
+migrateLocalMediaToServer().catch(() => undefined);
 
 function routeName() {
   const path = normalizedPath();
@@ -70,6 +72,10 @@ function detectAppBase() {
   return firstSegment?.toLowerCase() === "innertime" ? `/${firstSegment}` : "";
 }
 
+function isStaticPreviewHost() {
+  return window.location.hostname.endsWith(".github.io") || new URLSearchParams(window.location.search).has("static-preview");
+}
+
 function appUrl(path = "/") {
   if (!path.startsWith("/")) return path;
   if (!APP_BASE) return path;
@@ -78,12 +84,36 @@ function appUrl(path = "/") {
 
 function navigate(path) {
   window.history.pushState({}, "", appUrl(path));
-  renderRoute();
+  safeRenderRoute();
 }
 
 function replace(path) {
   window.history.replaceState({}, "", appUrl(path));
-  renderRoute();
+  safeRenderRoute();
+}
+
+function safeRenderRoute() {
+  renderRoute().catch(renderRouteError);
+}
+
+function renderRouteError(error) {
+  console.error(error);
+  app.className = "app";
+  app.innerHTML = `
+    <div class="page">
+      ${topbarMarkup("home")}
+      <section class="practice-surface" aria-labelledby="recover-title">
+        <p class="eyebrow">InnerTime</p>
+        <h2 id="recover-title" class="title">The page needed a clean restart.</h2>
+        <p class="lead">Your local practice notes are still on this device. Return to the start screen and begin again.</p>
+        <div class="button-row" style="margin-top: 24px;">
+          <button class="tool-button dark" data-route="/">Back to practice</button>
+          <button class="quiet-button" data-route="/session/15/">Start 15 minutes</button>
+        </div>
+      </section>
+    </div>
+  `;
+  bindCommonActions();
 }
 
 async function renderRoute() {
@@ -94,22 +124,22 @@ async function renderRoute() {
 
   const route = routeName();
   if (route === "admin-login") {
-    renderAdminLogin();
+    await renderAdminLogin();
     return;
   }
 
   if (route === "admin-dashboard") {
-    renderAdminDashboard();
+    await renderAdminDashboard();
     return;
   }
 
   if (route === "admin-media") {
-    renderAdminMedia();
+    await renderAdminMedia();
     return;
   }
 
   if (route === "admin-users") {
-    renderAdminUsers();
+    await renderAdminUsers();
     return;
   }
 
@@ -119,7 +149,7 @@ async function renderRoute() {
     return;
   }
 
-  renderHome();
+  await renderHome();
 }
 
 function durationFromPath() {
@@ -360,6 +390,7 @@ async function renderSessionStart(minutes) {
   const media = await getSelectableMedia(minutes);
   const selectedTrackId = selectedTrackFromUrl(media);
   const selected = media.find((item) => item.id === selectedTrackId) || media[0] || null;
+  const canStart = Boolean(selected) || IS_STATIC_PREVIEW;
   const shouldAutostart = new URLSearchParams(window.location.search).get("autostart") === "1";
 
   if (shouldAutostart && selected) {
@@ -387,8 +418,8 @@ async function renderSessionStart(minutes) {
           </label>
           ${selected ? "" : `
             <div class="empty-state">
-              <strong>No recording selected.</strong>
-              <span>Upload and publish a ${minutes}-minute master audio in Admin > Media first.</span>
+              <strong>${IS_STATIC_PREVIEW ? "No live recording connected yet." : "No recording selected."}</strong>
+              <span>${IS_STATIC_PREVIEW ? "This published preview can still start a silent timer. Uploaded master audio needs the Netlify/Supabase backend." : `Upload and publish a ${minutes}-minute master audio in Admin > Media first.`}</span>
             </div>
           `}
           <label class="field">
@@ -415,11 +446,11 @@ async function renderSessionStart(minutes) {
             </div>
             <div>
               <strong>Ready for Close-Eyes Mode</strong>
-              <p><span data-selected-track-name>${selected ? escapeHtml(sessionAudioLabel(selected)) : "The selected recording"}</span> will play when you start.</p>
+              <p><span data-selected-track-name>${selected ? escapeHtml(sessionAudioLabel(selected)) : `${minutes}-minute silent timer`}</span> ${selected ? "will play" : "will begin"} when you start.</p>
             </div>
           </div>
           <div class="button-row">
-            <button class="tool-button dark" type="submit" ${selected ? "" : "disabled"}>Start Close-Eyes Sitting</button>
+            <button class="tool-button dark" type="submit" ${canStart ? "" : "disabled"}>Start Close-Eyes Sitting</button>
             <button class="quiet-button" type="button" data-route="/">Not now</button>
           </div>
         </form>
@@ -464,11 +495,15 @@ function quickCheckOptions() {
 }
 
 async function startSitting(minutes, urge, mediaId = "") {
-  const media = await findMediaForSession(minutes, mediaId);
-  const audioUrl = mediaUrlForItem(media);
+  let media = await findMediaForSession(minutes, mediaId);
+  let audioUrl = mediaUrlForItem(media);
   if (!media || !audioUrl) {
-    showToast(`Upload and publish a ${minutes}-minute master audio first.`);
-    return;
+    if (!IS_STATIC_PREVIEW) {
+      showToast(`Upload and publish a ${minutes}-minute master audio first.`);
+      return;
+    }
+    media = fallbackSessionMedia(minutes);
+    audioUrl = "";
   }
   const audio = audioUrl ? new Audio(audioUrl) : null;
   if (audio) {
@@ -547,7 +582,7 @@ function renderActiveSession() {
             <div class="progress-track" aria-hidden="true"><span data-progress style="width: ${progress}%"></span></div>
             <p class="audio-label">${sessionAudioLabel(activeSession.media)}</p>
             <div class="session-audio-slot" data-session-audio-slot></div>
-            <p class="hint">If your browser blocks automatic playback, use this audio control once, then return to Close-Eyes Mode.</p>
+            <p class="hint">${activeSession.audio ? "If your browser blocks automatic playback, use this audio control once, then return to Close-Eyes Mode." : "This preview is running as a quiet timer until uploaded master audio is connected."}</p>
             <div class="button-row">
               <button class="tool-button dark" data-action="close-mode">Close-Eyes Mode</button>
               <button class="quiet-button" data-action="toggle-pause">${activeSession.isPaused ? "Resume" : "Pause"}</button>
@@ -687,7 +722,7 @@ function completeSession(completed) {
   if (!activeSession) return;
   clearActiveTimer();
   activeSession.audio?.pause();
-  if (activeSession.audioUrl) URL.revokeObjectURL(activeSession.audioUrl);
+  if (activeSession.audioUrl?.startsWith("blob:")) URL.revokeObjectURL(activeSession.audioUrl);
   if (completed) playBell();
   activeSession.completed = completed;
   activeSession.endedAt = new Date().toISOString();
@@ -769,6 +804,11 @@ function renderSavedSummary() {
 }
 
 async function renderAdminLogin() {
+  if (IS_STATIC_PREVIEW) {
+    renderStaticAdminNotice();
+    return;
+  }
+
   const bootstrap = await getAdminBootstrap();
   const hasAdmins = Boolean(bootstrap?.hasAdmins);
   app.innerHTML = `
@@ -867,7 +907,38 @@ async function renderAdminLogin() {
   });
 }
 
+function renderStaticAdminNotice() {
+  app.innerHTML = `
+    <div class="page">
+      ${topbarMarkup("admin")}
+      <section class="practice-surface" aria-labelledby="static-admin-title">
+        <p class="eyebrow">Admin setup</p>
+        <h2 id="static-admin-title" class="title">Admin media needs a backend.</h2>
+        <p class="lead">This GitHub Pages link is a static website preview. The public practice flow works here, but admin login, audio upload, downloads, and shared media storage need the Netlify/Supabase backend before they can work live.</p>
+        <div class="notice" style="margin-top: 20px;">
+          <strong>What works on this link</strong>
+          <span>Users can explore, start a sitting, use Close-Eyes Mode, and save local practice progress on the same device.</span>
+        </div>
+        <div class="notice" style="margin-top: 14px;">
+          <strong>What needs the next publish step</strong>
+          <span>Admin accounts, uploaded master audio, media publishing, and backups require server storage. GitHub Pages cannot store private uploaded files by itself.</span>
+        </div>
+        <div class="button-row" style="margin-top: 24px;">
+          <button class="tool-button dark" data-route="/">Back to practice</button>
+          <button class="quiet-button" data-route="/session/15/">Test 15-minute sitting</button>
+        </div>
+      </section>
+    </div>
+  `;
+  bindCommonActions();
+}
+
 async function renderAdminDashboard() {
+  if (IS_STATIC_PREVIEW) {
+    renderStaticAdminNotice();
+    return;
+  }
+
   if (!isAdmin()) {
     replace("/admin/login/");
     return;
@@ -993,6 +1064,11 @@ async function renderAdminDashboard() {
 }
 
 async function renderAdminUsers() {
+  if (IS_STATIC_PREVIEW) {
+    renderStaticAdminNotice();
+    return;
+  }
+
   if (!isAdmin()) {
     replace("/admin/login/");
     return;
@@ -1086,6 +1162,11 @@ function adminUserMarkup(admin) {
 }
 
 async function renderAdminMedia() {
+  if (IS_STATIC_PREVIEW) {
+    renderStaticAdminNotice();
+    return;
+  }
+
   if (!isAdmin()) {
     replace("/admin/login/");
     return;
@@ -1601,6 +1682,17 @@ function sessionAudioLabel(media) {
   return `${media.title} (${media.duration} min)`;
 }
 
+function fallbackSessionMedia(minutes) {
+  return {
+    id: `timer-${minutes}`,
+    title: `${minutes} minute Close-Eyes timer`,
+    duration: minutes,
+    type: "timer",
+    status: "published",
+    source: "Static preview fallback"
+  };
+}
+
 function readLogs() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE.logs) || "[]");
@@ -1987,6 +2079,7 @@ async function withStore(mode, callback) {
 }
 
 async function getServerMedia() {
+  if (IS_STATIC_PREVIEW) return null;
   try {
     const response = await fetch(MEDIA_API, { cache: "no-store" });
     if (!response.ok) return null;
@@ -1998,6 +2091,7 @@ async function getServerMedia() {
 }
 
 async function saveMediaToServer(item) {
+  if (IS_STATIC_PREVIEW) return null;
   if (!item?.blob) return null;
   try {
     const form = new FormData();
@@ -2033,6 +2127,7 @@ async function updateMediaStatus(id, status) {
 }
 
 async function patchMediaOnServer(id, fields) {
+  if (IS_STATIC_PREVIEW) return null;
   try {
     const response = await fetch(`${MEDIA_API}/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -2048,6 +2143,7 @@ async function patchMediaOnServer(id, fields) {
 }
 
 async function deleteMediaFromServer(id) {
+  if (IS_STATIC_PREVIEW) return false;
   try {
     const response = await fetch(`${MEDIA_API}/${encodeURIComponent(id)}`, { method: "DELETE" });
     return response.ok;
@@ -2064,6 +2160,7 @@ function mediaUrlForItem(item) {
 }
 
 async function migrateLocalMediaToServer() {
+  if (IS_STATIC_PREVIEW) return;
   const serverMedia = await getServerMedia();
   if (!serverMedia) return;
 
@@ -2130,11 +2227,27 @@ async function getAllLocalMedia() {
 
 async function getAllMediaSafe() {
   try {
-    return await getAllMedia();
+    return await withTimeout(getAllMedia(), MEDIA_LOAD_TIMEOUT_MS, []);
   } catch (error) {
     showToast("Media storage is unavailable in this browser.");
     return [];
   }
+}
+
+function withTimeout(promise, ms, fallbackValue) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => resolve(fallbackValue), ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 async function getSelectableMedia(duration) {

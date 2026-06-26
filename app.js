@@ -14,6 +14,7 @@ const DB_VERSION = 1;
 const MEDIA_STORE = "media";
 const SESSION_MINUTES = [15, 30];
 const MEDIA_API = "/api/media";
+const SUPABASE_BROWSER_MODULE = "https://esm.sh/@supabase/supabase-js@2";
 const APP_BASE = detectAppBase();
 const IS_STATIC_PREVIEW = isStaticPreviewHost();
 const MEDIA_LOAD_TIMEOUT_MS = IS_STATIC_PREVIEW ? 900 : 2500;
@@ -22,6 +23,8 @@ const BUNDLED_MEDIA_ITEMS = bundledMediaItems();
 let activeSession = null;
 let activeTimer = null;
 let installPrompt = null;
+let supabaseUploadClient = null;
+let supabaseUploadClientKey = "";
 
 window.addEventListener("popstate", safeRenderRoute);
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -893,7 +896,7 @@ async function renderAdminLogin() {
       showToast("Admin name or passcode did not match.");
       return;
     }
-    setAdminSession(loggedIn.admin);
+    setAdminSession(loggedIn);
     navigate("/admin/dashboard/");
   });
 }
@@ -1176,7 +1179,7 @@ async function renderAdminMedia() {
         <div id="upload-panel" class="admin-panel">
           <p class="eyebrow">Audio upload</p>
           <h2>Upload, preview, publish</h2>
-          <p>Published uploads are saved to the local media server and appear in every browser using this preview URL. Drafts stay admin-only.</p>
+          <p>On Netlify, audio uploads are saved in Supabase Storage. Published recordings appear in the sitting flow; drafts stay admin-only.</p>
           <form class="form-grid" data-form="media-upload" style="margin-top: 16px;">
             <label class="field">
               <span>Audio file</span>
@@ -1296,7 +1299,11 @@ function bindAdminMediaActions() {
       blob: file
     };
 
-    await putMedia(item);
+    const saved = await putMedia(item);
+    if (!saved) {
+      showToast("Audio could not be saved.");
+      return;
+    }
     showToast("Audio saved.");
     renderAdminMedia();
   });
@@ -1927,19 +1934,25 @@ function applyDayBrightness() {
   document.documentElement.style.setProperty("--day-dim", String(dim));
 }
 
-function setAdminSession(admin) {
-  localStorage.setItem(STORAGE.adminSession, JSON.stringify({ admin, createdAt: Date.now() }));
+function setAdminSession(auth) {
+  const admin = auth?.admin || auth;
+  const token = auth?.token || "";
+  localStorage.setItem(STORAGE.adminSession, JSON.stringify({ admin, token, createdAt: Date.now() }));
 }
 
-function getAdminSession() {
+function getAdminAuth() {
   try {
     const session = JSON.parse(localStorage.getItem(STORAGE.adminSession) || "null");
     if (!session?.admin) return null;
     if (Date.now() - Number(session.createdAt) >= 1000 * 60 * 60 * 12) return null;
-    return session.admin;
+    return session;
   } catch {
     return null;
   }
+}
+
+function getAdminSession() {
+  return getAdminAuth()?.admin || null;
 }
 
 function isAdmin() {
@@ -1952,6 +1965,15 @@ function isOwner() {
 
 function ownerPayload(extra = {}) {
   return { ...extra, actorId: getAdminSession()?.id || "" };
+}
+
+function adminHeaders(headers = {}) {
+  const nextHeaders = new Headers(headers);
+  const token = getAdminAuth()?.token;
+  if (token && !nextHeaders.has("Authorization")) {
+    nextHeaders.set("Authorization", `Bearer ${token}`);
+  }
+  return nextHeaders;
 }
 
 async function getAdminBootstrap() {
@@ -2002,7 +2024,10 @@ async function removeAdminUser(id) {
 
 async function apiJson(url, options = {}) {
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(url, {
+      ...options,
+      headers: adminHeaders(options.headers || {})
+    });
     if (!response.ok) {
       showToast(await response.text());
       return null;
@@ -2049,7 +2074,10 @@ async function withStore(mode, callback) {
 async function getServerMedia() {
   if (IS_STATIC_PREVIEW) return null;
   try {
-    const response = await fetch(MEDIA_API, { cache: "no-store" });
+    const response = await fetch(MEDIA_API, {
+      cache: "no-store",
+      headers: adminHeaders()
+    });
     if (!response.ok) return null;
     const data = await response.json();
     return Array.isArray(data.media) ? data.media : [];
@@ -2061,6 +2089,103 @@ async function getServerMedia() {
 async function saveMediaToServer(item) {
   if (IS_STATIC_PREVIEW) return null;
   if (!item?.blob) return null;
+  const supabaseItem = await saveMediaToSupabase(item);
+  if (supabaseItem) return supabaseItem;
+  if (supabaseItem === false) return false;
+  return saveMediaWithMultipart(item);
+}
+
+async function saveMediaToSupabase(item) {
+  if (!isAdmin()) return null;
+  try {
+    const uploadResponse = await fetch(`${MEDIA_API}/upload-url`, {
+      method: "POST",
+      headers: adminHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        title: item.title || "",
+        duration: item.duration || 15,
+        fileName: item.fileName || "audio",
+        mimeType: item.mimeType || item.blob.type || "audio/mpeg",
+        size: item.size || item.blob.size || 0
+      })
+    });
+
+    if ([404, 405].includes(uploadResponse.status)) {
+      return null;
+    }
+    if (!uploadResponse.ok) {
+      showToast(await uploadResponse.text());
+      return false;
+    }
+
+    const uploadData = await uploadResponse.json();
+    await uploadToSupabaseStorage(uploadData, item.blob);
+
+    const completeResponse = await fetch(`${MEDIA_API}/complete-upload`, {
+      method: "POST",
+      headers: adminHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        id: uploadData.upload.id,
+        title: item.title || "",
+        duration: item.duration || 15,
+        source: item.source || "",
+        permission: item.permission || "private-test",
+        status: item.status || "draft",
+        fileName: item.fileName || "audio",
+        mimeType: item.mimeType || item.blob.type || "audio/mpeg",
+        size: item.size || item.blob.size || 0,
+        storagePath: uploadData.upload.path
+      })
+    });
+
+    if (!completeResponse.ok) {
+      showToast(await completeResponse.text());
+      return false;
+    }
+
+    const completed = await completeResponse.json();
+    return completed.media || null;
+  } catch (error) {
+    showToast(error?.message || "Supabase upload failed.");
+    return false;
+  }
+}
+
+async function uploadToSupabaseStorage(uploadData, file) {
+  const upload = uploadData?.upload;
+  const supabase = uploadData?.supabase;
+  if (!upload?.bucket || !upload?.path || !upload?.token || !supabase?.url || !supabase?.anonKey) {
+    throw new Error("Supabase upload details are incomplete.");
+  }
+
+  const client = await getSupabaseUploadClient(supabase);
+  const { error } = await client
+    .storage
+    .from(upload.bucket)
+    .uploadToSignedUrl(upload.path, upload.token, file, {
+      contentType: file.type || "audio/mpeg",
+      cacheControl: "3600"
+    });
+
+  if (error) {
+    throw new Error(error.message || "Supabase storage upload failed.");
+  }
+}
+
+async function getSupabaseUploadClient(config) {
+  const cacheKey = `${config.url}|${config.anonKey}`;
+  if (supabaseUploadClient && supabaseUploadClientKey === cacheKey) {
+    return supabaseUploadClient;
+  }
+  const { createClient } = await import(SUPABASE_BROWSER_MODULE);
+  supabaseUploadClient = createClient(config.url, config.anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  supabaseUploadClientKey = cacheKey;
+  return supabaseUploadClient;
+}
+
+async function saveMediaWithMultipart(item) {
   try {
     const form = new FormData();
     form.append("file", item.blob, item.fileName || "audio");
@@ -2070,7 +2195,11 @@ async function saveMediaToServer(item) {
     form.append("permission", item.permission || "private-test");
     form.append("status", item.status || "draft");
 
-    const response = await fetch(MEDIA_API, { method: "POST", body: form });
+    const response = await fetch(MEDIA_API, {
+      method: "POST",
+      headers: adminHeaders(),
+      body: form
+    });
     if (!response.ok) {
       const error = await response.text();
       showToast(error || "Server upload failed. Check the local preview server.");
@@ -2103,7 +2232,7 @@ async function patchMediaOnServer(id, fields) {
   try {
     const response = await fetch(`${MEDIA_API}/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: adminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(fields)
     });
     if (!response.ok) return null;
@@ -2117,7 +2246,10 @@ async function patchMediaOnServer(id, fields) {
 async function deleteMediaFromServer(id) {
   if (IS_STATIC_PREVIEW) return false;
   try {
-    const response = await fetch(`${MEDIA_API}/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const response = await fetch(`${MEDIA_API}/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: adminHeaders()
+    });
     return response.ok;
   } catch {
     return false;
@@ -2133,6 +2265,7 @@ function mediaUrlForItem(item) {
 
 async function migrateLocalMediaToServer() {
   if (IS_STATIC_PREVIEW) return;
+  if (!isAdmin()) return;
   const serverMedia = await getServerMedia();
   if (!serverMedia) return;
 
@@ -2171,6 +2304,7 @@ function mediaIdentityKey(item) {
 async function putMedia(item) {
   const serverItem = await saveMediaToServer(item);
   if (serverItem) return serverItem;
+  if (serverItem === false) return null;
   return withStore("readwrite", (store) => store.put(item));
 }
 
@@ -2242,17 +2376,19 @@ function withTimeout(promise, ms, fallbackValue) {
 }
 
 async function getSelectableMedia(duration) {
-  const bundledForDuration = bundledMediaForDuration(duration);
-  if (bundledForDuration.length) return bundledForDuration;
-
   const media = await getAllMediaSafe();
-  return media
+  const selectable = media
     .filter((item) =>
       Number(item.duration) === Number(duration) &&
       mediaUrlForItem(item) &&
       (item.status === "published" || isAdmin())
     )
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    .sort((a, b) =>
+      trackNumber(a.title) - trackNumber(b.title) ||
+      String(b.updatedAt).localeCompare(String(a.updatedAt))
+    );
+
+  return selectable.length ? selectable : bundledMediaForDuration(duration);
 }
 
 function bundledMediaForDuration(duration) {

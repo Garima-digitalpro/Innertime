@@ -2,6 +2,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "netlify:dev": "netlify dev"
+  },
+  "dependencies": {
+    "@netlify/blobs": "latest",
+    "@supabase/supabase-js": "^2"
   }
 }

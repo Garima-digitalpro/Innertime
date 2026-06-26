@@ -1,0 +1,41 @@
+[build]
+  publish = "."
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/session/15/"
+  to = "/session/15/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/session/30/"
+  to = "/session/30/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin/login/"
+  to = "/admin/login/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin/dashboard/"
+  to = "/admin/dashboard/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin/media/"
+  to = "/admin/media/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin/admins/"
+  to = "/admin/admins/index.html"
+  status = 200
+
+[[headers]]
+  for = "/assets/audio/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

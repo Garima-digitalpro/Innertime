@@ -55,10 +55,28 @@ Use Admin > Media after running locally to upload permitted recordings again.
 
 ## Production path
 
-Before public launch, replace local-only admin/media storage with:
+The production backend is prepared for Netlify + Supabase:
 
-- Supabase Auth for owner/editor roles.
-- Supabase Storage for private audio objects.
-- Row-level security for media/session metadata.
-- A permission workflow for source credits and public publishing.
-- Optional user accounts only if cross-device sync becomes necessary.
+- Netlify hosts the static PWA and runs `/api/admins` and `/api/media` as serverless functions.
+- Supabase Storage stores uploaded master audio in a private bucket.
+- Netlify Blobs stores the small admin list and media catalog.
+- The prime owner admin is provisioned only from Netlify environment variables.
+- Browser uploads use a short-lived Supabase signed upload token, so large 15/30 minute files do not pass through the Netlify Function body.
+
+### Netlify environment variables
+
+Set these in Netlify > Site configuration > Environment variables:
+
+```text
+INNER_TIME_OWNER_NAME=Garima
+INNER_TIME_OWNER_PASSCODE=<your private owner passcode>
+INNER_TIME_SESSION_SECRET=<long random secret>
+SUPABASE_URL=<your Supabase project URL>
+SUPABASE_ANON_KEY=<your Supabase anon/publishable key>
+SUPABASE_SERVICE_ROLE_KEY=<your Supabase service role key>
+SUPABASE_STORAGE_BUCKET=inner-time-audio
+```
+
+Create a private Supabase Storage bucket named `inner-time-audio`. Do not expose the service role key in the browser or commit it to GitHub.
+
+After deploying on Netlify, log in at `/admin/login/`, upload audio in `/admin/media/`, publish the recording, then confirm it appears in `/session/15/` or `/session/30/`.

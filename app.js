@@ -20,14 +20,6 @@ let activeSession = null;
 let activeTimer = null;
 let installPrompt = null;
 
-app.addEventListener("click", (event) => {
-  const target = event.target instanceof Element ? event.target : null;
-  const button = target?.closest("[data-start-recording]");
-  if (!button) return;
-  event.preventDefault();
-  startRecordingSitting(button);
-});
-
 window.addEventListener("popstate", renderRoute);
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
@@ -178,7 +170,6 @@ function topbarMarkup(active = "home") {
 async function renderHome() {
   const stats = practiceStats();
   const media = await getAllMediaSafe();
-  const publishedMedia = visibleMediaForUser(media);
   const hasFifteen = hasPracticeOption(media, 15);
   const hasThirty = hasPracticeOption(media, 30);
   const brightness = getDayBrightness();
@@ -188,7 +179,6 @@ async function renderHome() {
       ${topbarMarkup("home")}
       <section class="intro-band" aria-label="Practice intention">
         <button type="button" data-scroll="#practice-start">Sittings</button>
-        <button type="button" data-scroll="#recordings">Recordings</button>
         <button type="button" data-scroll="#why-this-exists">Why this helps</button>
       </section>
       <section id="practice-start" class="hero-tool" aria-labelledby="home-title">
@@ -238,7 +228,7 @@ async function renderHome() {
           <section class="panel">
             <p class="panel-kicker">Practice rhythm</p>
             <h2>Last 7 days</h2>
-            <p>Practice time from sittings you started and recordings you listened to.</p>
+            <p>Practice time from sittings you started.</p>
             <div class="week-bars" aria-label="Practice minutes over the last 7 days">
               ${weekBarsMarkup(stats.week)}
             </div>
@@ -258,17 +248,6 @@ async function renderHome() {
             <button class="tool-button" data-action="install">Install app</button>
           </section>
         </aside>
-      </section>
-
-      <section id="recordings" class="site-section" aria-labelledby="recordings-title">
-        <div class="section-heading">
-          <p class="eyebrow">Recordings library</p>
-          <h2 id="recordings-title">Listen, then move inward.</h2>
-          <p>Tap a recording once. It starts the sitting and opens Close-Eyes Mode.</p>
-        </div>
-        <div class="recording-grid">
-          ${publishedMedia.length ? publicRecordingsMarkup(publishedMedia) : emptyRecordingsMarkup()}
-        </div>
       </section>
 
       <section id="why-this-exists" class="site-section" aria-labelledby="difference-title">
@@ -369,78 +348,12 @@ function bindExploreCards() {
   });
 }
 
-async function startRecordingSitting(button) {
-  if (button.dataset.busy === "true") return;
-  button.dataset.busy = "true";
-  if ("disabled" in button) button.disabled = true;
-  button.setAttribute("aria-disabled", "true");
-  button.classList.add("is-loading");
-  const minutes = Number(button.dataset.duration || 15);
-  const mediaId = button.dataset.mediaId || "";
-  try {
-    await startSitting(minutes, "Quick start from recording library.", mediaId);
-  } finally {
-    if (document.contains(button)) {
-      delete button.dataset.busy;
-      if ("disabled" in button) button.disabled = false;
-      button.removeAttribute("aria-disabled");
-      button.classList.remove("is-loading");
-    }
-  }
-}
-
 function visibleMediaForUser(media) {
   return media.filter((item) => (item.status === "published" || isAdmin()) && mediaUrlForItem(item));
 }
 
 function hasPracticeOption(media, duration) {
   return visibleMediaForUser(media).some((item) => Number(item.duration) === Number(duration));
-}
-
-function publicRecordingsMarkup(media) {
-  return media
-    .slice()
-    .sort((a, b) =>
-      Number(a.duration) - Number(b.duration) ||
-      String(b.updatedAt).localeCompare(String(a.updatedAt))
-    )
-    .map((item) => {
-      const url = mediaUrlForItem(item);
-      const canStart = SESSION_MINUTES.includes(Number(item.duration));
-      return `
-        <article class="recording-card">
-          <div class="recording-art" aria-hidden="true">
-            <span>${item.duration}</span>
-          </div>
-          <div class="recording-body">
-            <p class="panel-kicker">Audio recording</p>
-            <h3>${escapeHtml(item.title)}</h3>
-            <p>${escapeHtml(item.source || "Source credit not added yet.")}</p>
-            ${item.status === "published" ? "" : `<span class="pill draft">Admin preview draft</span>`}
-            ${url && canStart ? `
-              <a class="recording-play-button" href="${appUrl(`/session/${Number(item.duration)}/`)}?track=${encodeURIComponent(item.id)}&autostart=1" data-start-recording data-duration="${Number(item.duration)}" data-media-id="${escapeHtml(item.id)}" aria-label="Play ${Number(item.duration)} minute sitting with ${escapeHtml(item.title)}">
-                <span class="play-icon" aria-hidden="true"></span>
-                <span class="recording-play-text">
-                  <strong>Play ${Number(item.duration)} min sitting</strong>
-                  <small>Starts Close-Eyes Mode</small>
-                </span>
-              </a>
-            ` : url ? `<span class="pill draft">${item.duration} min, coming later</span>` : `<p class="hint">Audio file unavailable in this browser.</p>`}
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function emptyRecordingsMarkup() {
-  return `
-    <div class="empty-state recording-empty">
-      <strong>No published recordings yet.</strong>
-      <span>Use Admin > Media to upload and publish your first 15-minute audio recording.</span>
-      <button class="tool-button" data-route="/admin/media/">Open media admin</button>
-    </div>
-  `;
 }
 
 async function renderSessionStart(minutes) {
@@ -1184,7 +1097,7 @@ async function renderAdminMedia() {
       ${topbarMarkup("admin")}
       <section class="intro-band" aria-label="Admin intention">
         <button type="button" data-scroll="#upload-panel">Upload</button>
-        <button type="button" data-scroll="#media-library">Media library</button>
+        <button type="button" data-scroll="#media-library">Recording library</button>
         <button type="button" data-route="/admin/dashboard/">Dashboard</button>
       </section>
       <section class="admin-layout" aria-label="Media administration">
@@ -1245,9 +1158,9 @@ async function renderAdminMedia() {
         </div>
 
         <div id="media-library" class="admin-panel">
-          <p class="eyebrow">Media library</p>
-          <h2>${media.length} audio item${media.length === 1 ? "" : "s"}</h2>
-          <p>These are the shared local recordings for this preview. Download backups before deleting.</p>
+          <p class="eyebrow">Recording library</p>
+          <h2>${media.length} audio recording${media.length === 1 ? "" : "s"}</h2>
+          <p>Admin-only library for uploads, previews, publishing, and backups.</p>
           <div class="media-list" style="margin-top: 16px;">
             ${media.length ? mediaListMarkup(media) : `
               <div class="empty-state">

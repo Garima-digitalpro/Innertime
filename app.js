@@ -17,6 +17,7 @@ const MEDIA_API = "/api/media";
 const APP_BASE = detectAppBase();
 const IS_STATIC_PREVIEW = isStaticPreviewHost();
 const MEDIA_LOAD_TIMEOUT_MS = IS_STATIC_PREVIEW ? 900 : 2500;
+const BUNDLED_MEDIA_ITEMS = bundledMediaItems();
 
 let activeSession = null;
 let activeTimer = null;
@@ -74,6 +75,38 @@ function detectAppBase() {
 
 function isStaticPreviewHost() {
   return window.location.hostname.endsWith(".github.io") || new URLSearchParams(window.location.search).has("static-preview");
+}
+
+function bundledMediaItems() {
+  const addedAt = "2026-06-26T00:00:00.000Z";
+  return [
+    bundledMedia("bundled-track-1-15", "Track 1 - 15 Min. Vishvas Meditation", 15, "track-1-15-min-vishvas-meditation.mp3", 14662167, addedAt),
+    bundledMedia("bundled-track-2-15", "Track 2 - 15 Min. Vishvas Meditation", 15, "track-2-15-min-vishvas-meditation.mp3", 15367381, addedAt),
+    bundledMedia("bundled-track-3-15", "Track 3 - 15 Min. Vishvas Meditation", 15, "track-3-15-min-vishvas-meditation.mp3", 14533971, addedAt),
+    bundledMedia("bundled-track-4-15", "Track 4 - 15 Min. Vishvas Meditation", 15, "track-4-15-min-vishvas-meditation.mp3", 14533971, addedAt),
+    bundledMedia("bundled-track-5-15", "Track 5 - 15 Min. Vishvas Meditation", 15, "track-5-15-min-vishvas-meditation.mp3", 15126101, addedAt),
+    bundledMedia("bundled-track-1-30", "Track 1 - 30 Min. Vishvas Meditation", 30, "track-1-30-min-vishvas-meditation.mp3", 29090882, addedAt),
+    bundledMedia("bundled-track-2-30", "Track 2 - 30 Min. Vishvas Meditation", 30, "track-2-30-min-vishvas-meditation.mp3", 43179449, addedAt),
+    bundledMedia("bundled-track-3-30", "Track 3 - 30 Min. Vishvas Meditation", 30, "track-3-30-min-vishvas-meditation.mp3", 41043469, addedAt),
+    bundledMedia("bundled-track-4-30", "Track 4 - 30 Min. Vishvas Meditation", 30, "track-4-30-min-vishvas-meditation.mp3", 43443391, addedAt)
+  ];
+}
+
+function bundledMedia(id, title, duration, fileName, size, updatedAt) {
+  return {
+    id,
+    title,
+    duration,
+    type: "audio",
+    source: "Vishvas Meditation audio gallery",
+    permission: "private-test",
+    status: "published",
+    url: appUrl(`/assets/audio/${fileName}`),
+    fileName,
+    size,
+    updatedAt,
+    bundled: true
+  };
 }
 
 function appUrl(path = "/") {
@@ -1395,6 +1428,7 @@ function mediaListMarkup(media) {
     .map((item) => {
       const url = mediaUrlForItem(item);
       const statusClass = item.status === "published" ? "live" : "draft";
+      const isBundled = Boolean(item.bundled);
       return `
         <article class="media-item">
           <div class="media-head">
@@ -1404,6 +1438,7 @@ function mediaListMarkup(media) {
                 <span>${item.duration} minutes</span>
                 <span>${formatBytes(item.size || 0)}</span>
                 <span>${escapeHtml(item.permission || "private-test")}</span>
+                ${isBundled ? "<span>bundled</span>" : ""}
               </div>
             </div>
             <span class="pill ${statusClass}">${item.status === "published" ? "Published" : "Draft"}</span>
@@ -1411,9 +1446,11 @@ function mediaListMarkup(media) {
           ${url ? `<audio controls src="${url}"></audio>` : ""}
           <p class="hint">${escapeHtml(item.source || "No source credit added.")}</p>
           <div class="button-row">
-            <button class="quiet-button" data-action="toggle-status" data-id="${escapeHtml(item.id)}">${item.status === "published" ? "Move to draft" : "Publish"}</button>
             <button class="quiet-button" data-action="download-media" data-id="${escapeHtml(item.id)}">Download</button>
-            <button class="danger-button" data-action="delete-media" data-id="${escapeHtml(item.id)}">Delete</button>
+            ${isBundled ? "" : `
+              <button class="quiet-button" data-action="toggle-status" data-id="${escapeHtml(item.id)}">${item.status === "published" ? "Move to draft" : "Publish"}</button>
+              <button class="danger-button" data-action="delete-media" data-id="${escapeHtml(item.id)}">Delete</button>
+            `}
           </div>
         </article>
       `;
@@ -2116,6 +2153,10 @@ async function saveMediaToServer(item) {
 }
 
 async function updateMediaStatus(id, status) {
+  if (BUNDLED_MEDIA_ITEMS.some((item) => item.id === id)) {
+    showToast("Bundled recordings stay published. Add a separate upload if you need draft control.");
+    return null;
+  }
   const updatedOnServer = await patchMediaOnServer(id, { status });
   if (updatedOnServer) return updatedOnServer;
   const item = await getMedia(id);
@@ -2203,6 +2244,8 @@ async function putMedia(item) {
 }
 
 async function getMedia(id) {
+  const bundledItem = BUNDLED_MEDIA_ITEMS.find((item) => item.id === id);
+  if (bundledItem) return bundledItem;
   const serverMedia = await getServerMedia();
   const serverItem = serverMedia?.find((item) => item.id === id);
   if (serverItem) return serverItem;
@@ -2210,6 +2253,10 @@ async function getMedia(id) {
 }
 
 async function deleteMedia(id) {
+  if (BUNDLED_MEDIA_ITEMS.some((item) => item.id === id)) {
+    showToast("Bundled recordings cannot be deleted from Admin. Remove the asset from the app if needed.");
+    return false;
+  }
   const deletedOnServer = await deleteMediaFromServer(id);
   if (deletedOnServer) return true;
   return withStore("readwrite", (store) => store.delete(id));
@@ -2217,8 +2264,21 @@ async function deleteMedia(id) {
 
 async function getAllMedia() {
   const serverMedia = await getServerMedia();
-  if (serverMedia) return serverMedia;
-  return getAllLocalMedia();
+  if (serverMedia) return mergeBundledMedia(serverMedia);
+  let localMedia = [];
+  try {
+    localMedia = await getAllLocalMedia();
+  } catch {
+    localMedia = [];
+  }
+  return mergeBundledMedia(localMedia);
+}
+
+function mergeBundledMedia(media = []) {
+  const byId = new Map();
+  BUNDLED_MEDIA_ITEMS.forEach((item) => byId.set(item.id, item));
+  media.forEach((item) => byId.set(item.id, item));
+  return Array.from(byId.values());
 }
 
 async function getAllLocalMedia() {
@@ -2227,10 +2287,10 @@ async function getAllLocalMedia() {
 
 async function getAllMediaSafe() {
   try {
-    return await withTimeout(getAllMedia(), MEDIA_LOAD_TIMEOUT_MS, []);
+    return await withTimeout(getAllMedia(), MEDIA_LOAD_TIMEOUT_MS, BUNDLED_MEDIA_ITEMS);
   } catch (error) {
     showToast("Media storage is unavailable in this browser.");
-    return [];
+    return BUNDLED_MEDIA_ITEMS;
   }
 }
 

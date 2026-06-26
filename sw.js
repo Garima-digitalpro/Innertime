@@ -1,11 +1,11 @@
-const CACHE_NAME = "screen-to-inner-time-v32";
+const CACHE_NAME = "screen-to-inner-time-v33";
 const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const withBase = (path) => `${BASE_PATH}${path}`;
 const APP_SHELL = [
   withBase("/"),
   withBase("/index.html"),
-  withBase("/styles.css?v=20260626-static-live-fix-1"),
-  withBase("/app.js?v=20260626-static-live-fix-1"),
+  withBase("/styles.css?v=20260626-bundled-audio-1"),
+  withBase("/app.js?v=20260626-bundled-audio-1"),
   withBase("/manifest.webmanifest"),
   withBase("/assets/icon.svg"),
   withBase("/assets/vishvas-meditation-logo.png"),
@@ -34,6 +34,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (request.headers.has("range") || url.pathname.includes("/assets/audio/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(

@@ -13,6 +13,8 @@ const ADMINS_FILE = join(DATA_DIR, "admins.json");
 const PORT = Number(process.env.PORT || 4173);
 const MAX_UPLOAD_BYTES = 250 * 1024 * 1024;
 const MAX_ADMINS = 10;
+const PRIME_OWNER_NAME = cleanField(process.env.INNER_TIME_OWNER_NAME || process.env.OWNER_ADMIN_NAME || "Garima");
+const PRIME_OWNER_PASSCODE = String(process.env.INNER_TIME_OWNER_PASSCODE || process.env.OWNER_ADMIN_PASSCODE || "");
 
 const MIME_TYPES = {
   ".aac": "audio/aac",
@@ -45,7 +47,7 @@ createServer(async (request, response) => {
     }
 
     if (url.pathname === "/api/admins/bootstrap" && request.method === "POST") {
-      await handleAdminBootstrap(request, response);
+      sendText(response, 403, "Public owner setup is disabled. Only the deployment owner can provision the prime admin.");
       return;
     }
 
@@ -55,7 +57,7 @@ createServer(async (request, response) => {
     }
 
     if (url.pathname === "/api/admins/recover" && request.method === "POST") {
-      await handleAdminRecovery(request, response);
+      sendText(response, 403, "Prime owner recovery is deployment-controlled.");
       return;
     }
 
@@ -129,28 +131,25 @@ async function ensureStorage() {
   } catch {
     await writeAdmins([]);
   }
+  await provisionPrimeOwnerFromEnvironment();
 }
 
-async function handleAdminBootstrap(request, response) {
+async function provisionPrimeOwnerFromEnvironment() {
   const admins = await readAdmins();
-  if (admins.length) {
-    sendText(response, 409, "Owner admin already exists.");
+  if (admins.length || !PRIME_OWNER_PASSCODE) {
     return;
   }
-  const body = await readJsonBody(request);
-  if (!validPasscode(body.passcode)) {
-    sendText(response, 400, "Passcode must be at least 6 characters.");
+  if (!validPasscode(PRIME_OWNER_PASSCODE)) {
+    console.warn("Prime owner passcode was provided but is shorter than 6 characters; owner was not provisioned.");
     return;
   }
-  const recoveryCode = makeRecoveryCode();
   const owner = makeAdmin({
-    name: cleanField(body.name) || "Owner",
+    name: PRIME_OWNER_NAME || "Garima",
     role: "owner",
-    passcode: body.passcode,
-    recoveryCode
+    passcode: PRIME_OWNER_PASSCODE
   });
   await writeAdmins([owner]);
-  await sendJson(response, { admin: publicAdmin(owner), recoveryCode }, 201);
+  console.log(`Prime owner admin provisioned for ${owner.name}.`);
 }
 
 async function handleAdminLogin(request, response) {
@@ -164,29 +163,6 @@ async function handleAdminLogin(request, response) {
     return;
   }
   admin.lastLoginAt = new Date().toISOString();
-  await writeAdmins(admins);
-  await sendJson(response, { admin: publicAdmin(admin) });
-}
-
-async function handleAdminRecovery(request, response) {
-  const body = await readJsonBody(request);
-  const admins = await readAdmins();
-  const admin = admins.find((item) => item.name.toLowerCase() === cleanField(body.name).toLowerCase());
-  if (!admin || admin.role !== "owner" || !admin.recoveryHash || !admin.recoverySalt) {
-    sendText(response, 404, "Owner recovery is not configured.");
-    return;
-  }
-  if (admin.recoveryHash !== hashSecret(String(body.recoveryCode || ""), admin.recoverySalt)) {
-    sendText(response, 401, "Recovery code did not match.");
-    return;
-  }
-  if (!validPasscode(body.passcode)) {
-    sendText(response, 400, "New passcode must be at least 6 characters.");
-    return;
-  }
-  admin.salt = crypto.randomBytes(16).toString("hex");
-  admin.passHash = hashSecret(body.passcode, admin.salt);
-  admin.passwordResetAt = new Date().toISOString();
   await writeAdmins(admins);
   await sendJson(response, { admin: publicAdmin(admin) });
 }
@@ -431,10 +407,6 @@ function validPasscode(passcode) {
 
 function hashSecret(secret, salt) {
   return crypto.createHash("sha256").update(`${salt}:${secret}`).digest("hex");
-}
-
-function makeRecoveryCode() {
-  return crypto.randomBytes(12).toString("base64url").replace(/(.{4})/g, "$1-").replace(/-$/, "");
 }
 
 async function serveStatic(pathname, request, response) {

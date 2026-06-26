@@ -11,7 +11,7 @@ A free, personal-first meditation PWA that turns screen urges into master-guided
 - Before check-in: "What pulled me toward the screen?"
 - After check-in: "How do I feel now?"
 - Local practice logs, weekly stats, and screen-shift self-report.
-- Local admin passcode, created on first admin visit.
+- Prime owner admin access, provisioned by the deployment owner.
 - Admin audio upload, preview, publish/draft toggle, download backup, and delete.
 - Audio-first PWA shell with manifest and service worker.
 
@@ -35,7 +35,7 @@ Admin:
 http://localhost:4173/admin/media/
 ```
 
-On first admin visit, create an owner passcode. It is stored locally in this browser.
+Admin login is not self-service. The prime owner account must already exist in the local backend data, or be provisioned by starting the backend with `INNER_TIME_OWNER_NAME` and `INNER_TIME_OWNER_PASSCODE` environment variables on a clean data folder. Only the prime owner can assign other admins or reset assigned admin passcodes.
 
 Uploaded audio and admin data are runtime-only local files. They are intentionally not committed to GitHub:
 

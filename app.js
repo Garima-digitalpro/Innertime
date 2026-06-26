@@ -848,58 +848,37 @@ async function renderAdminLogin() {
   }
 
   const bootstrap = await getAdminBootstrap();
+  const adminServerUnavailable = !bootstrap;
   const hasAdmins = Boolean(bootstrap?.hasAdmins);
   app.innerHTML = `
     <div class="page">
       ${topbarMarkup("admin")}
       <section class="practice-surface" aria-labelledby="admin-login-title">
-        <p class="eyebrow">Owner access</p>
-        <h2 id="admin-login-title" class="title">${hasAdmins ? "Log in to admin." : "Create original owner admin."}</h2>
-        <p class="lead">${hasAdmins ? "Admin tools are restricted to assigned admins." : "The first admin becomes the original owner. Only the owner can add admins or reset passwords."}</p>
+        <p class="eyebrow">Prime admin access</p>
+        <h2 id="admin-login-title" class="title">Log in to admin.</h2>
+        <p class="lead">Only the prime owner and admins assigned by the owner can enter. Public owner creation is disabled.</p>
         <form class="form-grid" data-form="admin-login" style="margin-top: 24px;">
           <label class="field">
             <span>Admin name</span>
-            <input name="name" type="text" maxlength="60" autocomplete="username" placeholder="${hasAdmins ? "Owner or assigned admin" : "Your owner admin name"}" required>
+            <input name="name" type="text" maxlength="60" autocomplete="username" placeholder="Prime admin or assigned admin" required ${adminServerUnavailable || !hasAdmins ? "disabled" : ""}>
           </label>
           <label class="field">
             <span>Passcode</span>
-            <input name="passcode" type="password" minlength="6" autocomplete="current-password" required>
+            <input name="passcode" type="password" minlength="6" autocomplete="current-password" required ${adminServerUnavailable || !hasAdmins ? "disabled" : ""}>
           </label>
-          ${hasAdmins ? "" : `
-            <label class="field">
-              <span>Confirm passcode</span>
-              <input name="confirm" type="password" minlength="6" autocomplete="new-password" required>
-            </label>
-          `}
           <div class="notice">
-            <strong>Password reset policy</strong>
-            ${hasAdmins ? "If an assigned admin forgets a passcode, the original owner resets it from Admins. Owner recovery uses the recovery code shown during owner setup." : "Save the owner recovery code shown after setup. It is the only local recovery path for the original owner."}
+            <strong>Admin policy</strong>
+            ${adminServerUnavailable
+              ? "Admin login needs the local backend. Start the app with npm run dev, not a plain static file server."
+              : hasAdmins
+                ? "Admins cannot self-register. Only the prime owner can add admins or reset assigned admin passcodes."
+                : "No prime owner is provisioned on this backend yet. The owner must be seeded by the deployment owner, not created from this public page."}
           </div>
           <div class="button-row">
-            <button class="tool-button dark" type="submit">${hasAdmins ? "Log in" : "Create owner admin"}</button>
+            <button class="tool-button dark" type="submit" ${adminServerUnavailable || !hasAdmins ? "disabled" : ""}>Log in</button>
             <button class="quiet-button" type="button" data-route="/">Practice</button>
           </div>
         </form>
-        ${hasAdmins ? `
-          <form class="form-grid" data-form="owner-recovery" style="margin-top: 24px;">
-            <p class="panel-kicker">Owner recovery</p>
-            <label class="field">
-              <span>Owner name</span>
-              <input name="name" type="text" maxlength="60" autocomplete="username">
-            </label>
-            <label class="field">
-              <span>Recovery code</span>
-              <input name="recoveryCode" type="password" autocomplete="one-time-code">
-            </label>
-            <label class="field">
-              <span>New owner passcode</span>
-              <input name="passcode" type="password" minlength="6" autocomplete="new-password">
-            </label>
-            <div class="button-row">
-              <button class="quiet-button" type="submit">Reset owner passcode</button>
-            </div>
-          </form>
-        ` : ""}
       </section>
     </div>
   `;
@@ -909,38 +888,12 @@ async function renderAdminLogin() {
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") || "").trim();
     const passcode = String(form.get("passcode") || "");
-    if (!hasAdmins) {
-      const confirm = String(form.get("confirm") || "");
-      if (passcode !== confirm) {
-        showToast("Passcodes do not match.");
-        return;
-      }
-      const created = await createOwnerAdmin(name, passcode);
-      if (!created?.admin) return;
-      setAdminSession(created.admin);
-      showOwnerRecoveryModal(created.recoveryCode);
-      return;
-    }
-
     const loggedIn = await loginAdmin(name, passcode);
     if (!loggedIn?.admin) {
       showToast("Admin name or passcode did not match.");
       return;
     }
     setAdminSession(loggedIn.admin);
-    navigate("/admin/dashboard/");
-  });
-  document.querySelector("[data-form='owner-recovery']")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const recovered = await recoverOwnerPasscode(
-      String(form.get("name") || "").trim(),
-      String(form.get("recoveryCode") || ""),
-      String(form.get("passcode") || "")
-    );
-    if (!recovered?.admin) return;
-    setAdminSession(recovered.admin);
-    showToast("Owner passcode reset.");
     navigate("/admin/dashboard/");
   });
 }
@@ -1692,23 +1645,6 @@ function closeModal() {
   document.querySelector("[data-modal='true']")?.remove();
 }
 
-function showOwnerRecoveryModal(recoveryCode) {
-  showModal(`
-    <h2>Save owner recovery code</h2>
-    <p>This code is shown only now. Keep it private. It is the local recovery path for the original owner admin.</p>
-    <div class="notice" style="margin: 14px 0;">
-      <strong>${escapeHtml(recoveryCode || "Recovery code unavailable")}</strong>
-    </div>
-    <div class="button-row">
-      <button class="tool-button dark" data-modal-action="continue-owner">I saved it</button>
-    </div>
-  `);
-  document.querySelector("[data-modal-action='continue-owner']").addEventListener("click", () => {
-    closeModal();
-    navigate("/admin/dashboard/");
-  });
-}
-
 function clearActiveTimer() {
   if (activeTimer) window.clearInterval(activeTimer);
   activeTimer = null;
@@ -2019,15 +1955,13 @@ function ownerPayload(extra = {}) {
 }
 
 async function getAdminBootstrap() {
-  return apiJson("/api/admins/bootstrap");
-}
-
-async function createOwnerAdmin(name, passcode) {
-  return apiJson("/api/admins/bootstrap", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, passcode })
-  });
+  try {
+    const response = await fetch("/api/admins/bootstrap", { cache: "no-store" });
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
+  }
 }
 
 async function loginAdmin(name, passcode) {
@@ -2035,14 +1969,6 @@ async function loginAdmin(name, passcode) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, passcode })
-  });
-}
-
-async function recoverOwnerPasscode(name, recoveryCode, passcode) {
-  return apiJson("/api/admins/recover", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, recoveryCode, passcode })
   });
 }
 

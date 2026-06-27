@@ -327,34 +327,32 @@ async function renderHome() {
           <h2 id="difference-title">Not another feed. A doorway.</h2>
         </div>
         <div class="story-grid">
-          <button class="story-card explore-card is-active" type="button" data-explore="master-audio">
+          <article class="story-card">
             <span class="story-number">01</span>
             <h3>Master-guided audio</h3>
             <p>Audio stays central so practice can happen with eyes closed instead of another visual feed.</p>
-            <span class="read-more">Read this idea</span>
-          </button>
-          <button class="story-card explore-card" type="button" data-explore="close-eyes">
+          </article>
+          <article class="story-card">
             <span class="story-number">02</span>
             <h3>Close-Eyes practice</h3>
             <p>The session starts black by default, with only the essentials available if needed.</p>
-            <span class="read-more">Read this idea</span>
-          </button>
-          <button class="story-card explore-card" type="button" data-explore="inner-time">
+          </article>
+          <article class="story-card">
             <span class="story-number">03</span>
+            <h3>Private progress</h3>
+            <p>Completed sittings, minutes, reflections, and screen shifts stay on the current device.</p>
+          </article>
+          <article class="story-card">
+            <span class="story-number">04</span>
             <h3>Screen to Inner Time</h3>
-            <p>The app measures whether screen urges are becoming completed practice time.</p>
-            <span class="read-more">Read this idea</span>
-          </button>
+            <p>The pull toward the screen becomes an on-demand sitting with the master's voice.</p>
+          </article>
         </div>
-        <article class="explore-article" data-explore-panel>
-          ${exploreArticleMarkup("master-audio")}
-        </article>
       </section>
     </div>
   `;
 
   bindCommonActions();
-  bindExploreCards();
   document.querySelectorAll("[data-start-duration]").forEach((button) => {
     button.addEventListener("click", () => {
       navigate(`/session/${button.dataset.startDuration}/`);
@@ -373,49 +371,6 @@ async function renderHome() {
     await installPrompt.userChoice;
     installPrompt = null;
     renderHome();
-  });
-}
-
-function exploreArticleMarkup(topic) {
-  const articles = {
-    "master-audio": {
-      kicker: "Master-guided audio",
-      title: "The voice is the doorway, not the screen.",
-      body: "InnerTime is designed so the user does not need to keep watching. It is an on-demand sitting for the exact moment the urge appears.",
-      action: "Start with a 15-minute sitting when the pull toward scrolling begins."
-    },
-    "close-eyes": {
-      kicker: "Close-Eyes practice",
-      title: "The default experience removes visual noise.",
-      body: "A normal app asks for more attention. This one does the opposite. When a sitting begins, the screen turns black, the timer stays quiet, and the user can simply listen, close the eyes, and observe what is happening inside.",
-      action: "Day Mode stays available only for controls, brightness, and audio recovery."
-    },
-    "inner-time": {
-      kicker: "Screen to Inner Time",
-      title: "Progress means returning to yourself.",
-      body: "The goal is not streak pressure or entertainment. The meaningful signal is whether a user replaced a screen loop with practice, completed a sitting, and noticed how they felt afterward. The dashboard tells that story through sittings, reflections, frequency, and screen shifts.",
-      action: "For the first version, progress stays private on the device."
-    }
-  };
-  const article = articles[topic] || articles["master-audio"];
-  return `
-    <p class="panel-kicker">${escapeHtml(article.kicker)}</p>
-    <h3>${escapeHtml(article.title)}</h3>
-    <p>${escapeHtml(article.body)}</p>
-    <strong>${escapeHtml(article.action)}</strong>
-  `;
-}
-
-function bindExploreCards() {
-  const panel = document.querySelector("[data-explore-panel]");
-  const cards = Array.from(document.querySelectorAll("[data-explore]"));
-  if (!panel || !cards.length) return;
-  cards.forEach((card) => {
-    card.addEventListener("click", () => {
-      cards.forEach((item) => item.classList.remove("is-active"));
-      card.classList.add("is-active");
-      panel.innerHTML = exploreArticleMarkup(card.dataset.explore);
-    });
   });
 }
 

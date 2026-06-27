@@ -265,12 +265,12 @@ a {
 
 .story-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
   gap: 14px;
 }
 
 .story-card {
-  min-height: 190px;
+  min-height: 178px;
   display: grid;
   align-content: start;
   gap: 12px;
@@ -280,24 +280,6 @@ a {
   border-radius: var(--radius);
   background: #ffffff;
   font-family: Georgia, "Times New Roman", serif;
-}
-
-.explore-card {
-  width: 100%;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
-}
-
-.explore-card:hover,
-.explore-card:focus-visible,
-.explore-card.is-active {
-  outline: none;
-  border-color: rgba(49, 115, 184, 0.5);
-  background: #fbfaf6;
-  box-shadow: 0 12px 26px rgba(31, 47, 70, 0.14);
-  transform: translateY(-1px);
 }
 
 .story-number {
@@ -316,41 +298,6 @@ a {
 .story-card p {
   margin: 0;
   color: var(--muted);
-}
-
-.read-more {
-  color: var(--blue);
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 0.8rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.explore-article {
-  margin-top: 14px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent-line-strong);
-  border-radius: var(--radius);
-  background: #ffffff;
-}
-
-.explore-article h3 {
-  margin: 0 0 8px;
-  color: var(--black);
-  font-size: 1.45rem;
-}
-
-.explore-article p {
-  max-width: 840px;
-  margin: 0 0 10px;
-  color: var(--muted);
-}
-
-.explore-article strong {
-  display: block;
-  color: var(--blue-dark);
-  font-family: Arial, Helvetica, sans-serif;
 }
 
 .practice-surface,
